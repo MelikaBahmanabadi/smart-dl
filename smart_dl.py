@@ -17,11 +17,14 @@
 import os, sys, time, signal, threading, traceback, re, subprocess, webbrowser as _wb
 from pathlib import Path
 from urllib.parse import urlparse
+import shutil
+from huggingface_hub import HfFileSystem
+
 
 # ─── Bootstrap (pre-rich) ─────────────────────────────────────────────────────
 def ensure_deps():
     from importlib.util import find_spec
-    deps = {"yt_dlp": "yt-dlp", "requests": "requests", "rich": "rich"}
+    deps = {"yt_dlp": "yt-dlp", "requests": "requests", "rich": "rich", "huggingface_hub": "huggingface_hub"}
     missing = [(mod, pkg) for mod, pkg in deps.items() if find_spec(mod) is None]
     if not missing:
         return
@@ -1840,6 +1843,40 @@ def _handle_podcast(url, out_folder):
     except Exception as e:
         error("Cannot handle this URL: " + str(e)[:120])
 
+def is_hf_bucket_url(url):
+    return "huggingface.co/buckets/" in url
+
+
+def _download_hf_bucket(url, out_folder):
+    print_section("Downloading Hugging Face Bucket", "🤗")
+
+    bucket = url.split("huggingface.co/buckets/", 1)[1].strip("/")
+    target = Path(out_folder) / bucket.split("/")[-1]
+
+    target.mkdir(parents=True, exist_ok=True)
+
+    try:
+        console.print(
+            f"[cyan]Bucket:[/cyan] {bucket}"
+        )
+
+        cmd = [
+            "hf",
+            "sync",
+            f"hf://buckets/{bucket}",
+            str(target)
+        ]
+
+        subprocess.run(cmd, check=True)
+
+        success(f"Bucket downloaded successfully → {target}")
+
+    except subprocess.CalledProcessError as e:
+        error(f"Hugging Face download failed: {e}")
+
+    except Exception as e:
+        error(str(e))
+
 # ─── Main loop ────────────────────────────────────────────────────────────────
 def main():
     print_header()
@@ -1902,7 +1939,10 @@ def main():
             continue
 
         try:
-            if is_playlist_url(url):
+            if is_hf_bucket_url(url):
+                _download_hf_bucket(url, out_folder)
+            
+            elif is_playlist_url(url):
                 _handle_playlist(url, out_folder)
 
             elif is_youtube_url(url):
